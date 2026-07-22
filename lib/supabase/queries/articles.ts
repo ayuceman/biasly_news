@@ -65,6 +65,8 @@ export type GetAnalyzedArticlesOptions = {
   limit?: number;
   /** Filter to a single category (applied in JS — §21 joined-table gotcha). */
   category?: string;
+  /** Filter to any of these categories — For You interests (applied in JS, §21). */
+  categories?: string[];
   /** Filter to a single source region (applied in JS — §21 joined-table gotcha). */
   region?: string;
 };
@@ -78,7 +80,7 @@ export type GetAnalyzedArticlesOptions = {
 export async function getAnalyzedArticles(
   options: GetAnalyzedArticlesOptions = {}
 ): Promise<ArticleWithAnalysis[]> {
-  const { limit = 60, category, region } = options;
+  const { limit = 60, category, categories, region } = options;
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase
     .from("articles")
@@ -95,6 +97,10 @@ export async function getAnalyzedArticles(
     .filter((a): a is ArticleWithAnalysis => a !== null);
 
   if (category) articles = articles.filter((a) => a.analysis.category === category);
+  if (categories && categories.length > 0) {
+    const set = new Set(categories);
+    articles = articles.filter((a) => set.has(a.analysis.category ?? ""));
+  }
   if (region) articles = articles.filter((a) => a.source?.region === region);
   return articles;
 }
