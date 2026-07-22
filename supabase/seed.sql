@@ -19,6 +19,22 @@ update public.sources set region = 'United States'  where name in ('NPR', 'Fox N
 update public.sources set region = 'United Kingdom' where name in ('BBC News', 'The Guardian') and region is null;
 
 -- ---------------------------------------------------------------------------
+-- Nepal sources. General English-language news + share-market news portals.
+-- listing_url is the homepage / news-listing entry page (story cards live here);
+-- the scraper's generic extractor handles these like any other source.
+-- NOTE: share-market outlets (ShareSansar, Merolagani) carry non-political
+-- market news — political framing will mostly resolve to center/unclear.
+-- ---------------------------------------------------------------------------
+insert into public.sources (name, listing_url, active, region) values
+  ('The Kathmandu Post',    'https://kathmandupost.com/',                     true, 'Nepal'),
+  ('OnlineKhabar English',  'https://english.onlinekhabar.com/',              true, 'Nepal'),
+  ('The Himalayan Times',   'https://thehimalayantimes.com/',                 true, 'Nepal'),
+  ('myRepublica',           'https://myrepublica.nagariknetwork.com/',        true, 'Nepal'),
+  ('ShareSansar',           'https://www.sharesansar.com/category/latest-news', true, 'Nepal'),
+  ('Merolagani',            'https://merolagani.com/NewsList.aspx',           true, 'Nepal')
+on conflict (listing_url) do nothing;
+
+-- ---------------------------------------------------------------------------
 -- OPTIONAL demo article + analysis so the wired UI renders end-to-end before
 -- the scraping/AI pipeline exists. Safe to delete once real data flows in.
 -- ---------------------------------------------------------------------------
