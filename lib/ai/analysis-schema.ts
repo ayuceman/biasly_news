@@ -9,6 +9,23 @@ import { z } from "zod";
 export const SENTIMENT_LABELS = ["positive", "neutral", "negative"] as const;
 export const FRAMING_LABELS = ["left", "center", "right", "mixed", "unclear"] as const;
 
+// Fixed topic categories the model must map every article into. Single source of
+// truth shared by the analysis schema, the cheap classifier, and the UI fallback.
+export const ARTICLE_CATEGORIES = [
+  "Politics",
+  "Business",
+  "Technology",
+  "Science",
+  "Health",
+  "Sports",
+  "Entertainment",
+  "World",
+  "Environment",
+  "Other",
+] as const;
+
+export type ArticleCategory = (typeof ARTICLE_CATEGORIES)[number];
+
 // Tolerance for the model's three percentages summing to 100 before we reject.
 const SUM_TOLERANCE = 2;
 
@@ -21,6 +38,7 @@ export const analysisSchema = z
     centerPercentage: z.number().min(0).max(100),
     rightPercentage: z.number().min(0).max(100),
     politicalFramingLabel: z.enum(FRAMING_LABELS),
+    category: z.enum(ARTICLE_CATEGORIES),
     confidence: z.number().min(0).max(1),
     framingNotes: z.string().min(1),
     loadedTerms: z.array(z.string()),

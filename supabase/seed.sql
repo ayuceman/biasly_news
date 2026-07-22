@@ -5,13 +5,18 @@
 -- Active sources (homepages only — DB is the source of truth for source URLs,
 -- per AGENTS.md §7; do NOT hardcode these in scraping code).
 -- ---------------------------------------------------------------------------
-insert into public.sources (name, listing_url, active) values
-  ('Reuters',       'https://www.reuters.com/',        true),
-  ('NPR',           'https://www.npr.org/',            true),
-  ('BBC News',      'https://www.bbc.com/news',        true),
-  ('Fox News',      'https://www.foxnews.com/',        true),
-  ('The Guardian',  'https://www.theguardian.com/us',  true)
+insert into public.sources (name, listing_url, active, region) values
+  ('Reuters',       'https://www.reuters.com/',        true, 'International'),
+  ('NPR',           'https://www.npr.org/',            true, 'United States'),
+  ('BBC News',      'https://www.bbc.com/news',        true, 'United Kingdom'),
+  ('Fox News',      'https://www.foxnews.com/',        true, 'United States'),
+  ('The Guardian',  'https://www.theguardian.com/us',  true, 'United Kingdom')
 on conflict (listing_url) do nothing;
+
+-- Existing rows (inserted before the region column) — tag their region.
+update public.sources set region = 'International'  where name = 'Reuters'      and region is null;
+update public.sources set region = 'United States'  where name in ('NPR', 'Fox News') and region is null;
+update public.sources set region = 'United Kingdom' where name in ('BBC News', 'The Guardian') and region is null;
 
 -- ---------------------------------------------------------------------------
 -- OPTIONAL demo article + analysis so the wired UI renders end-to-end before

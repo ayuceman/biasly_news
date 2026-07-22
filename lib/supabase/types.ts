@@ -11,6 +11,7 @@ export type Source = {
   parser_strategy: string | null;
   active: boolean;
   logo_url: string | null;
+  region: string | null;
   created_at: string;
 };
 
@@ -43,6 +44,9 @@ export type ArticleAnalysis = {
   loaded_terms: string[] | null;
   disclaimer: string | null;
   model: string | null;
+  // AI-assigned topic category (fixed enum in lib/ai/analysis-schema.ts).
+  // Nullable: null until the category feature backfills or a fresh analysis runs.
+  category: string | null;
   // pgvector column (§20). PostgREST returns it as a bracketed string literal
   // (e.g. "[0.1,0.2,...]"); only the details query selects it (never the feed).
   embedding?: string | null;
@@ -77,7 +81,7 @@ export type OxylabsScheduleRun = {
 
 // Shapes returned by the data-access queries (joined rows).
 export type ArticleWithAnalysis = Article & {
-  source: Pick<Source, "id" | "name" | "logo_url"> | null;
+  source: Pick<Source, "id" | "name" | "logo_url" | "region"> | null;
   analysis: ArticleAnalysis;
 };
 

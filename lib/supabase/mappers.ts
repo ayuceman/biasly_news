@@ -2,9 +2,11 @@ import type { ArticleWithAnalysis } from "@/lib/supabase/types";
 
 // Maps single-article-analysis DB rows onto the existing UI component shapes.
 // The mock UI assumed multi-source aggregation; the real schema does not have
-// category/region/multi-source data, so we feed best-fit values and omit what
-// the DB cannot provide (rather than fabricate it). A §19-faithful card/detail
-// redesign is a separate UI task.
+// region/multi-source data, so we feed best-fit values and omit what the DB
+// cannot provide (rather than fabricate it). `category` is now a real AI-assigned
+// topic; older rows may still be null until backfilled, so we fall back to the
+// capitalized bias label for those. A §19-faithful card/detail redesign is a
+// separate UI task.
 
 function pct(value: number | null): number {
   return typeof value === "number" ? Math.round(value) : 0;
@@ -39,7 +41,9 @@ export function toNewsCardData(row: ArticleWithAnalysis): NewsCardData {
   return {
     id: row.id,
     imageUrl: row.image_url,
-    category: capitalize(row.analysis.bias_label), // closest available signal
+    // Real AI category when present; fall back to the bias label only while a
+    // row is still awaiting category backfill.
+    category: row.analysis.category ?? capitalize(row.analysis.bias_label),
     region: row.source?.name ?? "Unknown source",
     title: row.title,
     leftPercentage: pct(row.analysis.left_percentage),

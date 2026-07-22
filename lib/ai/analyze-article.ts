@@ -1,8 +1,14 @@
 import "server-only";
 
+import { z } from "zod";
 import { generateObject } from "ai";
 import { provider } from "@/lib/ai/openai-provider";
-import { analysisSchema, type AnalysisOutput } from "@/lib/ai/analysis-schema";
+import {
+  analysisSchema,
+  ARTICLE_CATEGORIES,
+  type AnalysisOutput,
+  type ArticleCategory,
+} from "@/lib/ai/analysis-schema";
 
 // AI layer (AGENTS.md §5, §19): turns one article's text into a validated
 // structured analysis. Uses the Vercel AI SDK with the OpenAI provider and a
@@ -39,6 +45,7 @@ const SYSTEM_PROMPT = [
   "- politicalFramingLabel: one of left/center/right/mixed/unclear. It should",
   "  match the strongest percentage, UNLESS confidence is low or the",
   "  percentages are close — then use mixed or unclear.",
+  `- category: the single best topic category for the article, one of: ${ARTICLE_CATEGORIES.join(", ")}. Use Other only when none clearly fit.`,
   "- confidence: 0 to 1. If evidence is weak, keep confidence low and prefer",
   "  the unclear label.",
   "- framingNotes: short notes on how the article frames its subject.",
@@ -72,4 +79,35 @@ export async function analyzeArticle(
     maxRetries: 1,
   });
   return object;
+}
+
+// Minimal schema for the cheap category-only classifier (backfill path). Reuses
+// the same fixed enum as the full analysis so values stay consistent.
+const categorySchema = z.object({ category: z.enum(ARTICLE_CATEGORIES) });
+
+const CATEGORY_SYSTEM_PROMPT = [
+  "You classify a news article into exactly one topic category.",
+  `Choose one of: ${ARTICLE_CATEGORIES.join(", ")}.`,
+  "Use Other only when none of the categories clearly fit. Return JSON only.",
+].join("\n");
+
+/**
+ * Classify one article into a single category using only its title and existing
+ * neutral summary — a cheap call used to backfill categories for articles that
+ * were analyzed before the category feature (no full re-analysis, no embedding).
+ * Throws on transport failure or invalid output; callers retry or skip.
+ */
+export async function classifyCategory(
+  title: string,
+  summary: string
+): Promise<ArticleCategory> {
+  const { object } = await generateObject({
+    model: provider(resolveModelName()),
+    schema: categorySchema,
+    system: CATEGORY_SYSTEM_PROMPT,
+    prompt: `TITLE: ${title}\n\nSUMMARY: ${summary}`,
+    abortSignal: AbortSignal.timeout(ANALYSIS_TIMEOUT_MS),
+    maxRetries: 1,
+  });
+  return object.category;
 }

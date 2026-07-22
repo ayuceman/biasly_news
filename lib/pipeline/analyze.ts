@@ -3,7 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createAnalysisLogger } from "@/lib/pipeline/logger";
-import { analyzeArticle, resolveModelName } from "@/lib/ai/analyze-article";
+import {
+  analyzeArticle,
+  classifyCategory,
+  resolveModelName,
+} from "@/lib/ai/analyze-article";
 import { embedArticle, toVectorLiteral } from "@/lib/ai/embed-article";
 import { normalizeFraming, type AnalysisOutput } from "@/lib/ai/analysis-schema";
 import type { AnalysisSummary, AnalyzeOptions } from "@/lib/pipeline/analysis-types";
@@ -140,6 +144,41 @@ async function backfillEmbedding(
   if (updateError) throw new Error(updateError.message);
 }
 
+type CategoryBacklogRow = { article_id: string; summary: string | null };
+
+/**
+ * Analysis rows whose `category` is null (category backfill). These were analyzed
+ * before the category feature; they get a category via a cheap classify call on
+ * title + existing summary — never re-running sentiment/bias/embedding and never
+ * touching `analyzed_at`. Honors the optional `articleIds` restriction and `limit`.
+ */
+async function getCategoryBacklogRows(
+  admin: SupabaseClient,
+  options: AnalyzeOptions
+): Promise<CategoryBacklogRow[]> {
+  const restrict = options.articleIds ? new Set(options.articleIds) : null;
+  const backlog: CategoryBacklogRow[] = [];
+
+  for (let from = 0; ; from += SCAN_PAGE) {
+    const { data, error } = await admin
+      .from("article_analyses")
+      .select("article_id, summary")
+      .is("category", null)
+      .range(from, from + SCAN_PAGE - 1);
+    if (error) throw new Error(error.message);
+
+    const rows = (data as CategoryBacklogRow[] | null) ?? [];
+    for (const row of rows) {
+      if (restrict && !restrict.has(row.article_id)) continue;
+      backlog.push(row);
+    }
+    if (rows.length < SCAN_PAGE) break;
+  }
+
+  if (options.limit && options.limit > 0) return backlog.slice(0, options.limit);
+  return backlog;
+}
+
 /**
  * Save one analysis row (deriving bias_score, storing the embedding) then set
  * analyzed_at. `embedding` is a pgvector literal (§20); analyzed_at is set only
@@ -171,6 +210,7 @@ async function saveAnalysis(
     loaded_terms: output.loadedTerms,
     disclaimer: output.disclaimer,
     model,
+    category: output.category,
     embedding,
   });
   if (error) {
@@ -350,6 +390,75 @@ export async function runAnalysisPipeline(
         log.incrFailure("save_error");
         log.event("warn", "backfill_save_failed", (err as Error).message, { id: article.id });
       }
+    }
+  }
+
+  // Category backfill: classify already-analyzed articles whose category is null,
+  // using title + existing summary. Cheap single call; never re-analyzes or
+  // re-embeds and never rewrites analyzed_at.
+  let categoryBacklog: CategoryBacklogRow[] = [];
+  try {
+    categoryBacklog = await getCategoryBacklogRows(admin, options);
+  } catch (err) {
+    log.event("warn", "category_backlog_failed", (err as Error).message);
+  }
+
+  if (categoryBacklog.length > 0) {
+    log.event("info", "category_backlog_detected", `${categoryBacklog.length} to backfill`, {
+      count: categoryBacklog.length,
+    });
+  }
+
+  for (let i = 0; i < categoryBacklog.length; i += batchSize) {
+    const batch = categoryBacklog.slice(i, i + batchSize);
+    const ids = batch.map((r) => r.article_id);
+
+    let titles: Array<{ id: string; title: string }>;
+    try {
+      const { data, error } = await admin
+        .from("articles")
+        .select("id, title")
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+      titles = (data as Array<{ id: string; title: string }> | null) ?? [];
+    } catch (err) {
+      log.incrFailure("load_error");
+      log.event("error", "category_load_failed", (err as Error).message);
+      continue;
+    }
+    const titleById = new Map(titles.map((t) => [t.id, t.title]));
+
+    for (const row of batch) {
+      const title = (titleById.get(row.article_id) ?? "").trim();
+      const summary = (row.summary ?? "").trim();
+      if (!title && !summary) {
+        log.incrFailure("empty_text");
+        log.event("info", "category_skipped", "No usable text", { id: row.article_id });
+        continue;
+      }
+
+      let category: string;
+      try {
+        category = await classifyCategory(title, summary);
+      } catch (err) {
+        log.incrFailure("category_error");
+        log.event("warn", "category_classify_failed", (err as Error).message, {
+          id: row.article_id,
+        });
+        continue;
+      }
+
+      const { error } = await admin
+        .from("article_analyses")
+        .update({ category })
+        .eq("article_id", row.article_id);
+      if (error) {
+        log.incrFailure("save_error");
+        log.event("warn", "category_save_failed", error.message, { id: row.article_id });
+        continue;
+      }
+      log.counters.categoriesBackfilled += 1;
+      log.event("info", "category_backfilled", category, { id: row.article_id });
     }
   }
 

@@ -3,15 +3,9 @@ import { ChevronDown, Globe, MapPin, Menu } from "lucide-react";
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 import { Button } from "@/components/ui/button";
+import { SiteNav } from "@/components/layout/site-nav";
 import { TrackedSubscribeButton } from "@/components/ui/tracked-subscribe-button";
 import { cn } from "@/lib/utils";
-
-const navLinks = [
-  { label: "Home", href: "/", active: true },
-  { label: "For You", href: "#", withDot: true },
-  { label: "Local", href: "#" },
-  { label: "Blindspot", href: "#" },
-];
 
 const themeOptions = ["Light", "Dark", "Auto"];
 
@@ -77,27 +71,7 @@ function SiteHeader() {
           </Link>
         </div>
 
-        <nav className="hidden items-center gap-6 md:flex">
-          {navLinks.map((link) => (
-            <Link
-              key={link.label}
-              href={link.href}
-              className={cn(
-                "relative text-body-md font-medium text-text-secondary hover:text-foreground",
-                link.active &&
-                  "text-foreground underline underline-offset-8"
-              )}
-            >
-              {link.label}
-              {link.withDot && (
-                <span
-                  aria-hidden
-                  className="absolute -right-2 top-0 size-1.5 rounded-full bg-destructive"
-                />
-              )}
-            </Link>
-          ))}
-        </nav>
+        <SiteNav />
 
         <div className="flex items-center gap-3">
           <TrackedSubscribeButton />

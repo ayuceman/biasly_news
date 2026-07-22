@@ -1,63 +1,43 @@
-import { ArticleLink } from "@/components/ui/article-link";
+import { ArticleGrid } from "@/components/ui/article-grid";
 import { CategoryChips } from "@/components/ui/category-chips";
-import { NewsCard } from "@/components/ui/news-card";
-import { getAnalyzedArticles } from "@/lib/supabase/queries/articles";
+import {
+  getAnalyzedArticles,
+  getDistinctCategories,
+} from "@/lib/supabase/queries/articles";
 import { toNewsCardData } from "@/lib/supabase/mappers";
 
-const categories = [
-  "World Cup",
-  "IPL",
-  "Social Media",
-  "Business & Markets",
-  "Health & Medicine",
-  "Soccer",
-  "Artificial Intelligence",
-  "Arsenal FC",
-  "Extreme Weather and Disasters",
-];
-
-async function Home() {
-  const articles = await getAnalyzedArticles();
+async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ category?: string }>;
+}) {
+  const { category } = await searchParams;
+  const [articles, categories] = await Promise.all([
+    getAnalyzedArticles({ category }),
+    getDistinctCategories(),
+  ]);
   const cards = articles.map(toNewsCardData);
 
   return (
     <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 px-6 py-8">
-      <CategoryChips categories={categories} />
+      <CategoryChips categories={categories} active={category} />
 
       <section className="flex flex-col gap-4">
-        <h1 className="text-h1 font-bold text-foreground">Top News</h1>
+        <h1 className="text-h1 font-bold text-foreground">
+          {category ? category : "Top News"}
+        </h1>
 
-        {cards.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-border py-16 text-center">
-            <p className="text-h4 font-semibold text-foreground">
-              No analyzed articles yet
-            </p>
-            <p className="text-body-sm text-text-secondary">
-              Run the scraping and analysis pipeline to populate the feed.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {cards.map((card) => (
-              <ArticleLink
-                key={card.id}
-                articleId={card.id}
-                category={card.category}
-              >
-                <NewsCard
-                  imageUrl={card.imageUrl}
-                  category={card.category}
-                  region={card.region}
-                  title={card.title}
-                  leftPercentage={card.leftPercentage}
-                  centerPercentage={card.centerPercentage}
-                  rightPercentage={card.rightPercentage}
-                  sourcesCount={card.sourcesCount}
-                />
-              </ArticleLink>
-            ))}
-          </div>
-        )}
+        <ArticleGrid
+          cards={cards}
+          emptyTitle={
+            category ? `No articles in ${category}` : "No analyzed articles yet"
+          }
+          emptyBody={
+            category
+              ? "Try another category or clear the filter."
+              : "Run the scraping and analysis pipeline to populate the feed."
+          }
+        />
       </section>
     </main>
   );

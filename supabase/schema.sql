@@ -17,8 +17,13 @@ create table if not exists public.sources (
   parser_strategy text,                    -- optional source-specific strategy
   active          boolean not null default true,
   logo_url        text,
+  region          text,                    -- editorial region for the Local page (e.g. United States)
   created_at      timestamptz not null default now()
 );
+
+-- Existing databases: add the region column if the table predates the Local page.
+alter table public.sources
+  add column if not exists region text;
 
 -- ---------------------------------------------------------------------------
 -- articles: scraped article detail pages, append-only. §7, §10, §13
@@ -58,6 +63,7 @@ create table if not exists public.article_analyses (
   loaded_terms      text[],
   disclaimer        text,
   model             text,
+  category          text,                  -- AI-assigned topic category (fixed enum in lib/ai/analysis-schema.ts)
   embedding         vector(1536),          -- OpenAI text-embedding-3-small (§20)
   created_at        timestamptz not null default now(),
   constraint article_analyses_left_pct_range check (left_percentage is null or (left_percentage >= 0 and left_percentage <= 100)),
@@ -71,6 +77,11 @@ create table if not exists public.article_analyses (
 -- Existing databases: add the embedding column if the table predates §20.
 alter table public.article_analyses
   add column if not exists embedding vector(1536);
+
+-- Existing databases: add the category column if the table predates the
+-- category feature. Nullable so existing rows stay valid until backfilled.
+alter table public.article_analyses
+  add column if not exists category text;
 
 -- IVFFlat cosine index for related-articles similarity search (§20).
 create index if not exists article_analyses_embedding_idx

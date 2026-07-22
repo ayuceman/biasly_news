@@ -8,7 +8,7 @@ import type {
   Source,
 } from "@/lib/supabase/types";
 
-type SourceEmbed = Pick<Source, "id" | "name" | "logo_url">;
+type SourceEmbed = Pick<Source, "id" | "name" | "logo_url" | "region">;
 
 // Row shape returned by the joined selects below. Supabase's query builder types
 // embedded relations as arrays; at runtime a to-one relation is a single object,
@@ -21,11 +21,11 @@ type JoinedRow = Article & {
 const SELECT = `
   id, source_id, original_url, canonical_url, title, image_url,
   published_at, raw_text, scraped_at, analyzed_at,
-  source:sources ( id, name, logo_url ),
+  source:sources ( id, name, logo_url, region ),
   article_analyses (
     id, article_id, summary, sentiment_score, sentiment_label, bias_score,
     bias_label, left_percentage, center_percentage, right_percentage,
-    confidence, framing_notes, loaded_terms, disclaimer, model, created_at
+    confidence, framing_notes, loaded_terms, disclaimer, model, category, created_at
   )
 `;
 
@@ -61,13 +61,24 @@ function toArticleWithAnalysis(
   return { ...article, source: firstSource(row), analysis };
 }
 
+export type GetAnalyzedArticlesOptions = {
+  limit?: number;
+  /** Filter to a single category (applied in JS — §21 joined-table gotcha). */
+  category?: string;
+  /** Filter to a single source region (applied in JS — §21 joined-table gotcha). */
+  region?: string;
+};
+
 /**
  * Analyzed articles for the home feed, newest first. Only articles that have
  * an analysis row are returned (filtered in JS, not via a joined-table .eq()).
+ * Optional `category` / `region` narrow the feed — also filtered in JS for the
+ * same reason (never `.eq('article_analyses.category', …)` / `.eq('sources.region', …)`).
  */
 export async function getAnalyzedArticles(
-  limit = 60
+  options: GetAnalyzedArticlesOptions = {}
 ): Promise<ArticleWithAnalysis[]> {
+  const { limit = 60, category, region } = options;
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase
     .from("articles")
@@ -79,9 +90,94 @@ export async function getAnalyzedArticles(
     throw new Error(`Failed to load articles: ${error.message}`);
   }
 
-  return ((data as unknown as JoinedRow[] | null) ?? [])
+  let articles = ((data as unknown as JoinedRow[] | null) ?? [])
     .map(toArticleWithAnalysis)
     .filter((a): a is ArticleWithAnalysis => a !== null);
+
+  if (category) articles = articles.filter((a) => a.analysis.category === category);
+  if (region) articles = articles.filter((a) => a.source?.region === region);
+  return articles;
+}
+
+// A source article is a Blindspot candidate when its AI framing leans strongly to
+// one side. Not a cross-source coverage count (we don't collect those) — an
+// AI-estimated per-article lean.
+export const BLINDSPOT_LEAN_THRESHOLD = 60;
+
+/**
+ * Articles split by strong political lean for the Blindspot page. `left` holds
+ * articles framed strongly left (`left_percentage >= threshold`), shown as
+ * "Missed by the Right"; `right` holds strongly-right ones, shown as "Missed by
+ * the Left". Each list is sorted by lean strength (desc) and capped at `perColumn`.
+ * Filtering/sorting is done in JS (§21 joined-table gotcha).
+ */
+export async function getBlindspotArticles(
+  perColumn = 12
+): Promise<{ left: ArticleWithAnalysis[]; right: ArticleWithAnalysis[] }> {
+  const articles = await getAnalyzedArticles({ limit: 200 });
+
+  const left = articles
+    .filter((a) => (a.analysis.left_percentage ?? 0) >= BLINDSPOT_LEAN_THRESHOLD)
+    .sort((a, b) => (b.analysis.left_percentage ?? 0) - (a.analysis.left_percentage ?? 0))
+    .slice(0, perColumn);
+
+  const right = articles
+    .filter((a) => (a.analysis.right_percentage ?? 0) >= BLINDSPOT_LEAN_THRESHOLD)
+    .sort((a, b) => (b.analysis.right_percentage ?? 0) - (a.analysis.right_percentage ?? 0))
+    .slice(0, perColumn);
+
+  return { left, right };
+}
+
+/**
+ * Distinct non-null source regions, ordered alphabetically. Powers the Local page
+ * region chips — only regions actually tagged on a source appear.
+ */
+export async function getRegions(): Promise<string[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("sources")
+    .select("region")
+    .not("region", "is", null);
+
+  if (error) {
+    throw new Error(`Failed to load regions: ${error.message}`);
+  }
+
+  const regions = new Set<string>();
+  for (const row of (data as Array<{ region: string | null }> | null) ?? []) {
+    if (row.region) regions.add(row.region);
+  }
+  return [...regions].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Distinct analysis categories present across analyzed articles, ordered by how
+ * many articles carry each (most first). Powers the home-page category chips —
+ * only categories that actually have articles appear. Null categories (not yet
+ * backfilled) are ignored.
+ */
+export async function getDistinctCategories(): Promise<string[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("article_analyses")
+    .select("category")
+    .not("category", "is", null);
+
+  if (error) {
+    throw new Error(`Failed to load categories: ${error.message}`);
+  }
+
+  const counts = new Map<string, number>();
+  for (const row of (data as Array<{ category: string | null }> | null) ?? []) {
+    const c = row.category;
+    if (!c) continue;
+    counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([category]) => category);
 }
 
 /**

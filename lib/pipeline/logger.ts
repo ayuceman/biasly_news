@@ -130,6 +130,7 @@ type AnalysisCounters = {
   failed: number;
   embedded: number;
   embeddingFailed: number;
+  categoriesBackfilled: number;
   batches: number;
   failureReasons: Record<string, number>;
 };
@@ -157,6 +158,7 @@ export function createAnalysisLogger(admin: SupabaseClient): AnalysisLogger {
     failed: 0,
     embedded: 0,
     embeddingFailed: 0,
+    categoriesBackfilled: 0,
     batches: 0,
     failureReasons: {},
   };
@@ -205,6 +207,7 @@ export function createAnalysisLogger(admin: SupabaseClient): AnalysisLogger {
       failed: counters.failed,
       embedded: counters.embedded,
       embeddingFailed: counters.embeddingFailed,
+      categoriesBackfilled: counters.categoriesBackfilled,
       batches: counters.batches,
       totalDurationMs: Date.now() - startedAt,
       failureReasons: counters.failureReasons,

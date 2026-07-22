@@ -23,6 +23,8 @@ export type AnalysisSummary = {
   embedded: number;
   /** Embeddings that failed to generate/save this run (§20). */
   embeddingFailed: number;
+  /** Categories filled for previously-analyzed rows this run (category backfill). */
+  categoriesBackfilled: number;
   batches: number;
   totalDurationMs: number;
   /** Failure/skip reasons grouped by count. */
